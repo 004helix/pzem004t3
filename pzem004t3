@@ -3,6 +3,7 @@
 
 from __future__ import print_function
 from paho.mqtt.client import Client as MqttClient
+import logging
 import serial
 import time
 import os
@@ -77,9 +78,9 @@ class PZEM004T3:
         self.serial.close()
 
 
-def publish(mqtt, topic, data):
-    print('{} -> {}'.format(topic, data))
-    mqtt.publish(topic, data)
+def publish(mqtt, topic, payload):
+    logging.info('[mqtt] > %s = %s', topic, payload)
+    mqtt.publish(topic, payload)
 
 
 def main():
@@ -129,6 +130,9 @@ def main():
 
 
 if __name__ == "__main__":
+    logging.basicConfig(stream=sys.stdout, level=logging.INFO,
+                        format='%(asctime)s %(levelname)s %(message)s')
+
     if os.getenv('MQTT_HOST') is not None:
         MQTT_HOST = os.getenv('MQTT_HOST')
 
