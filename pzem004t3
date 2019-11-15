@@ -3,80 +3,21 @@
 
 from __future__ import print_function
 from paho.mqtt.client import Client as MqttClient
+from pyModbusTCP.client import ModbusClient
+from pyModbusTCP import utils
 import logging
-import serial
 import time
 import sys
 import os
 
 
-# modbus slave port
-MODBUS_DEVICE = '/dev/ttyUSB0'
+# modbus tcp server
+MODBUS_HOST = 'mbusd'
+MODBUS_PORT = 502
 
 # mqtt broker
 MQTT_HOST = 'mosquitto'
 MQTT_PORT = 1883
-
-
-class PZEM004T3:
-    def __init__(self, port, addr=0x01, timeout=10.0):  # Usb serial port
-        self.serial = serial.Serial(
-            port=port,
-            baudrate=9600,
-            parity=serial.PARITY_NONE,
-            stopbits=serial.STOPBITS_ONE,
-            bytesize=serial.EIGHTBITS,
-            timeout=timeout
-        )
-
-        if self.serial.isOpen():
-            self.serial.close()
-        self.serial.open()
-
-        self.addr = addr
-
-        self.readAll = [ addr, 0x04, 0, 0, 0, 0x0A ]  # read 10 input registers
-        self.readAll += self.crc16(self.readAll)
-
-    def crc16(self, frame):
-        crc = 0xFFFF
-        for index, item in enumerate(bytearray(frame)):
-            next_byte = item
-            crc ^= next_byte
-            for i in range(8):
-                lsb = crc & 1
-                crc >>= 1
-                if lsb:
-                    crc ^= 0xA001
-        return [ crc & 0xff, crc >> 8 ]
-
-    def read(self):
-        self.serial.write(serial.to_bytes(self.readAll))
-        data = bytearray(self.serial.read(25))
-        if [ data[-2], data[-1] ] != self.crc16(data[:-2]):
-            raise Exception('Bad reply CRC')
-
-        if data[0] != self.addr:
-            raise Exception('Bad reply slave address')
-
-        if data[1] != 0x04:
-            raise Exception('Bad reply command')
-
-        if data[2] != 0x14:
-            raise Exception('Bad reply length')
-
-        return {
-            'voltage':     ((data[3] << 8) + data[4]) / 10.0,
-            'current':     ((data[5] << 8) + data[6] + (data[7] << 24) + (data[8] << 16)) / 1000.0,
-            'power':       ((data[9] << 8) + data[10] + (data[11] << 24) + (data[12] << 16)) / 10.0,
-            'energy':      ((data[13] << 8) + data[14] + (data[15] << 24) + (data[16] << 16)),
-            'frequency':   ((data[17] << 8) + data[18]) / 10.0,
-            'powerfactor': ((data[19] << 8) + data[20]) / 100.0,
-            'alarm':       False if data[21] == 0 and data[22] == 0 else True
-        }
-
-    def close(self):
-        self.serial.close()
 
 
 def publish(mqtt, topic, payload):
@@ -85,47 +26,55 @@ def publish(mqtt, topic, payload):
 
 
 def main():
-    # create PZEM-004T v3.0 client
-    pzem = PZEM004T3(MODBUS_DEVICE)
-
     # create mqtt client
-    mqtt = MqttClient('pzem')
+    mqtt = MqttClient('pzem004t3')
     mqtt.connect(MQTT_HOST, port=MQTT_PORT)
     mqtt.loop_start()
 
+    # create modbus client
+    modbus = ModbusClient(host=MODBUS_HOST, port=MODBUS_PORT, auto_open=True)
+
     # last sent time
-    frequency = list()
     voltage = list()
     current = list()
     power = list()
+    freq = list()
     pf = list()
     t = 0
 
+    # endless loop
     while True:
         time.sleep(0.25)
 
-        data = pzem.read()
+        data = modbus.read_input_registers(0, 10)
 
-        frequency.append(data['frequency'])
-        voltage.append(data['voltage'])
-        current.append(data['current'])
-        power.append(data['power'])
-        pf.append(data['powerfactor'])
+        #print(data)
+        if not data:
+            continue
+
+        voltage.append(data[0] / 10.0)
+        current.append(utils.word_list_to_long(data[1:3], big_endian=False)[0] / 1000.0)
+        power.append(utils.word_list_to_long(data[3:5], big_endian=False)[0] / 10.0)
+        # energy = utils.word_list_to_long(data[5:7], big_endian=False)[0]
+        freq.append(data[7] / 10.0)
+        pf.append(data[8] / 100.0)
+        # alarm = False if data[9] == 0 else True
 
         ct = time.time()
 
         if ct < t:
             continue
 
-        publish(mqtt, 'pzem/frequency', '%.1f' % (sum(frequency) / len(frequency),))
         publish(mqtt, 'pzem/voltage', '%.1f' % (sum(voltage) / len(voltage),))
         publish(mqtt, 'pzem/current', '%.3f' % (sum(current) / len(current),))
         publish(mqtt, 'pzem/power', '%.1f' % (sum(power) / len(power),))
+        publish(mqtt, 'pzem/frequency', '%.1f' % (sum(freq) / len(freq),))
         publish(mqtt, 'pzem/powerfactor', '%.2f' % (sum(pf) / len(pf),))
-        frequency = list()
+
         voltage = list()
         current = list()
         power = list()
+        freq = list()
         pf = list()
         t = ct + 60
 
@@ -140,7 +89,10 @@ if __name__ == "__main__":
     if os.getenv('MQTT_PORT') is not None:
         MQTT_PORT = int(os.getenv('MQTT_PORT'))
 
-    if os.getenv('DEVICE') is not None:
-        MODBUS_DEVICE = os.getenv('DEVICE')
+    if os.getenv('MODBUS_HOST') is not None:
+        MODBUS_HOST = os.getenv('MODBUS_HOST')
+
+    if os.getenv('MODBUS_PORT') is not None:
+        MODBUS_PORT = int(os.getenv('MODBUS_PORT'))
 
     main()
