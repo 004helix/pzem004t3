@@ -5,6 +5,8 @@ Environment
 # mosquitto broker
 MQTT_HOST=<host>
 MQTT_PORT=<port>
+MQTT_TOPIC=pzem
 # modbus device
-DEVICE=/dev/ttyUSB0
+MODBUS_HOSTE=<host>
+MODBUS_PORT=<port>
 ```

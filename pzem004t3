@@ -1,3 +1,4 @@
+#!/usr/bin/python
 #!/usr/bin/python3
 #coding=utf-8
 
@@ -18,17 +19,14 @@ MODBUS_PORT = 502
 # mqtt broker
 MQTT_HOST = 'mosquitto'
 MQTT_PORT = 1883
-
-
-def publish(mqtt, topic, payload):
-    logging.info('[mqtt] > %s = %s', topic, payload)
-    mqtt.publish(topic, payload)
+MQTT_TOPIC = 'pzem'
 
 
 def main():
     # create mqtt client
     mqtt = MqttClient('pzem004t3')
-    mqtt.connect(MQTT_HOST, port=MQTT_PORT)
+    mqtt.enable_logger(logging.getLogger('mqtt'))
+    mqtt.connect_async(MQTT_HOST, port=MQTT_PORT, keepalive=30)
     mqtt.loop_start()
 
     # create modbus client
@@ -48,7 +46,7 @@ def main():
 
         data = modbus.read_input_registers(0, 10)
 
-        #print(data)
+        logging.debug('modbus raw data: %s', repr(data))
         if not data:
             continue
 
@@ -65,23 +63,28 @@ def main():
         if ct < t:
             continue
 
-        publish(mqtt, 'pzem/voltage', '%.1f' % (sum(voltage) / len(voltage),))
-        publish(mqtt, 'pzem/current', '%.3f' % (sum(current) / len(current),))
-        publish(mqtt, 'pzem/power', '%.1f' % (sum(power) / len(power),))
-        publish(mqtt, 'pzem/frequency', '%.1f' % (sum(freq) / len(freq),))
-        publish(mqtt, 'pzem/powerfactor', '%.2f' % (sum(pf) / len(pf),))
+        mqtt.publish(MQTT_TOPIC + '/voltage', '%.1f' % (sum(voltage) / len(voltage),))
+        mqtt.publish(MQTT_TOPIC + '/current', '%.3f' % (sum(current) / len(current),))
+        mqtt.publish(MQTT_TOPIC + '/power', '%.1f' % (sum(power) / len(power),))
+        mqtt.publish(MQTT_TOPIC + '/frequency', '%.1f' % (sum(freq) / len(freq),))
+        mqtt.publish(MQTT_TOPIC + '/powerfactor', '%.2f' % (sum(pf) / len(pf),))
 
-        voltage = list()
-        current = list()
-        power = list()
-        freq = list()
-        pf = list()
+        voltage *= 0
+        current *= 0
+        power *= 0
+        freq *= 0
+        pf *= 0
         t = ct + 60
 
 
 if __name__ == "__main__":
-    logging.basicConfig(stream=sys.stdout, level=logging.INFO,
-                        format='%(asctime)s %(levelname)s %(message)s')
+    if os.getenv('DEBUG') is not None:
+        loglevel = logging.DEBUG
+    else:
+        loglevel = logging.INFO
+
+    logging.basicConfig(stream=sys.stdout, level=loglevel,
+                        format='%(asctime)s %(levelname)s [%(name)s] %(message)s')
 
     if os.getenv('MQTT_HOST') is not None:
         MQTT_HOST = os.getenv('MQTT_HOST')
@@ -89,10 +92,16 @@ if __name__ == "__main__":
     if os.getenv('MQTT_PORT') is not None:
         MQTT_PORT = int(os.getenv('MQTT_PORT'))
 
+    if os.getenv('MQTT_TOPIC') is not None:
+        MQTT_TOPIC = os.getenv('MQTT_TOPIC')
+
     if os.getenv('MODBUS_HOST') is not None:
         MODBUS_HOST = os.getenv('MODBUS_HOST')
 
     if os.getenv('MODBUS_PORT') is not None:
         MODBUS_PORT = int(os.getenv('MODBUS_PORT'))
+
+    logging.info('Starting pzem004t3, modbus %s:%d, mqtt %s:%d topic /%s',
+                 MODBUS_HOST, MODBUS_PORT, MQTT_HOST, MQTT_PORT, MQTT_TOPIC)
 
     main()
