@@ -7,6 +7,6 @@ MQTT_HOST=<host>
 MQTT_PORT=<port>
 MQTT_TOPIC=pzem
 # modbus device
-MODBUS_HOSTE=<host>
+MODBUS_HOST=<host>
 MODBUS_PORT=<port>
 ```
