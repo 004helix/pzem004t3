@@ -5,6 +5,7 @@ from paho.mqtt.client import Client as MqttClient
 from pyModbusTCP.client import ModbusClient
 from pyModbusTCP import utils
 import logging
+import signal
 import time
 import sys
 import os
