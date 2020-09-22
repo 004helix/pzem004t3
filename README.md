@@ -1,4 +1,4 @@
-# PZEM-004T v3.0 client
+# PZEM-004T v3.0 <-> mqtt bridge
 
 Environment
 ```
